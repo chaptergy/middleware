@@ -804,7 +804,7 @@ def test_59_create_user_ro_dataset(request):
 
 @pytest.mark.parametrize('payload', [
     {'group': 1},
-    {'home': '/mnt/tank/foo', 'home_create': True},
+    {'home': '/mnt/tank', 'home_create': True},
     {'uid': 777777},
     {'smb': True},
     {'username': 'glusterd_bad'},
