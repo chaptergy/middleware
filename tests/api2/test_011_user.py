@@ -811,7 +811,7 @@ def test_59_create_user_ro_dataset(request):
 ])
 def test_60_immutable_user_validation(payload, request):
     # Glusterd happens to be an immutable 
-    user_req = call('user.query', [['username', '=', 'news']], {'get': true})
+    user_req = call('user.query', [['username', '=', 'news']], {'get': True})
 
     with pytest.raises(ValidationErrors) as ve:
         call('user.update', user_req['id'], payload)
