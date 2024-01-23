@@ -85,10 +85,11 @@ class ADSecrets(Service):
             'tdb-options': self.tdb_options
         })
 
-    def has_domain(self, domain):
-        return bool(await self.__fetch(f"{Secrets.MACHINE_LAST_CHANGE_TIME.value}/{domain.upper()}"))
+    async def has_domain(self, domain):
+        # Check whether running version of secrets.tdb has our machine account password
+        return bool(await self.__fetch(f"{Secrets.MACHINE_PASSWORD.value}/{domain.upper()}"))
 
-    def last_password_change(self, domain):
+    async def last_password_change(self, domain):
         encoded_change_ts = await self.__fetch(
             f"{Secrets.MACHINE_LAST_CHANGE_TIME.value}/{domain.upper()}"
         )
@@ -102,8 +103,14 @@ class ADSecrets(Service):
 
         return struct.unpack("<L", bytes_passwd_chng)[0]
 
-    def set_ldap_idmap_secret(self, domain, user_dn, secret):
+    async def set_ldap_idmap_secret(self, domain, user_dn, secret):
+        # This is used by idmap_ldap and idmap_rfc2307
         await self.__store(f'SECRETS/GENERIC/IDMAP_LDAP_{domain.upper()}/{userdn}', b64encode(secret))
 
-    def get_ldap_idmap_secret(self, domain, user_dn):
+    async def get_ldap_idmap_secret(self, domain, user_dn):
+        # This is used by idmap_ldap and idmap_rfc2307
         return await self.__fetch(f'SECRETS/GENERIC/IDMAP_LDAP_{domain.upper()}/{user_dn}')
+
+    async def dump(self, filters, options):
+        entries = self.__entries(filters, options)
+        return {entry['key']: entry['value'] for entry in entries}
