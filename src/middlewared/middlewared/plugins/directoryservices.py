@@ -1,16 +1,13 @@
 import enum
-import json
 import os
 import struct
-import tdb
 import errno
 
-from base64 import b64encode, b64decode
+from base64 import b64decode
 from middlewared.schema import accepts, Dict, List, OROperator, Ref, returns, Str
 from middlewared.service import no_authz_required, Service, private, job
 from middlewared.plugins.smb import SMBCmd, SMBPath
 from middlewared.service_exception import CallError, MatchNotFound
-from middlewared.utils import run
 
 DEFAULT_AD_CONF = {
     "id": 1,
@@ -187,83 +184,6 @@ class DirectoryServices(Service):
         return ret
 
     @private
-    async def get_db_secrets(self):
-        rv = {}
-        db = await self.middleware.call('datastore.query',
-           'services.cifs', [], {'prefix': 'cifs_srv_', 'get': True
-        })
-
-        rv.update({"id": db['id']})
-        if db['secrets'] is None:
-            return rv
-
-        try:
-            rv.update(json.loads(db['secrets']))
-        except json.decoder.JSONDecodeError:
-            self.logger.warning("Stored secrets are not valid JSON "
-                                "a new backup of secrets should be generated.")
-        return rv
-
-    @private
-    async def backup_secrets(self):
-        """
-        Writes the current secrets database to the freenas config file.
-        """
-        ha_mode = await self.middleware.call('smb.get_smb_ha_mode')
-        if ha_mode == "UNIFIED":
-            failover_status = await self.middleware.call("failover.status")
-            if failover_status != "MASTER":
-                self.logger.debug("Current failover status [%s]. Skipping secrets backup.",
-                                  failover_status)
-                return
-
-        netbios_name = (await self.middleware.call('smb.config'))['netbiosname']
-        db_secrets = await self.get_db_secrets()
-        id_ = db_secrets.pop('id')
-
-        if not (secrets := (await self.middleware.call('directoryservices.secrets.dump'))):
-            self.logger.warning("Unable to parse secrets")
-            return
-
-        db_secrets.update({f"{netbios_name.upper()}$": secrets})
-        await self.middleware.call(
-            'datastore.update',
-            'services.cifs', id_,
-            {'secrets': json.dumps(db_secrets)},
-            {'prefix': 'cifs_srv_'}
-        )
-
-    @private
-    async def restore_secrets(self, netbios_name=None):
-        """
-        Restores secrets from a backup copy in the TrueNAS config file. This should
-        be used with caution because winbindd will automatically update machine account
-        passwords at configurable intervals. There is a periodic TrueNAS check that
-        automates this backup, but care should be taken before manually invoking restores.
-        """
-        ha_mode = await self.middleware.call('smb.get_smb_ha_mode')
-        if ha_mode == "UNIFIED":
-            failover_status = await self.middleware.call("failover.status")
-            if failover_status != "MASTER":
-                self.logger.debug("Current failover status [%s]. Skipping secrets backup.",
-                                  failover_status)
-                return
-
-        if netbios_name is None:
-            netbios_name = (await self.middleware.call('smb.config'))['netbiosname']
-
-        db_secrets = await self.get_db_secrets()
-        server_secrets = db_secrets.get(f"{netbios_name.upper()}$")
-        if server_secrets is None:
-            self.logger.warning("Unable to find stored secrets for [%s]. "
-                                "Directory service functionality may be impacted.",
-                                netbios_name)
-            return False
-
-        # Implement restore
-        return True
-
-    @private
     async def get_last_password_change(self, domain=None):
         """
         Returns unix timestamp of last password change according to
@@ -277,12 +197,12 @@ class DirectoryServices(Service):
 
         try:
             passwd_ts = await self.middleware.call(
-                'directroyservices.secrets.last_password_change', domain
+                'directoryservices.secrets.last_password_change', domain
             )
         except MatchNotFound:
             passwd_ts = None
 
-        db_secrets = self.get_db_secrets()
+        db_secrets = await self.middleware.call('directoryservices.secrets.get_db_secrets')
         server_secrets = db_secrets.get(f"{smb_config['netbiosname_local'].upper()}$")
         if server_secrets is None:
             return {"dbconfig": None, "secrets": passwd_ts}
@@ -294,21 +214,6 @@ class DirectoryServices(Service):
             stored_ts = None
 
         return {"dbconfig": stored_ts, "secrets": passwd_ts}
-
-    @private
-    async def available_secrets(self):
-        """
-        Entries in the secrets backup are keyed according to machine account name,
-        which in this case is the netbios name of server followed by a dollar sign ($).
-        These are possible values to add as an argument to 'restore_secrets' so that
-        the secrets.tdb can be restored to what it was prior to a netbios name change.
-        This functionality is intended more as a support tool than for general-purpose
-        use in case user has become somewhat inventive with troubleshooting steps
-        and changing server names.
-        """
-        db_secrets = await self.get_db_secrets()
-        db_secrets.pop('id')
-        return list(db_secrets.keys())
 
     @private
     async def initialize(self, data=None):
@@ -342,7 +247,7 @@ class DirectoryServices(Service):
             self.logger.warning("Domain secrets database does not exist. "
                                 "Attempting to restore.")
 
-            if not await self.middleware.call("directoryservices.restore_secrets"):
+            if not await self.middleware.call("directoryservices.secrets.restore"):
                 self.logger.warning("Failed to restore domain secrets database. "
                                     "Re-joining AD domain may be required.")
 

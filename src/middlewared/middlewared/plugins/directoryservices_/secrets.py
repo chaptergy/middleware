@@ -1,4 +1,5 @@
 import enum
+import json
 import struct
 
 from base64 import b64encode, b64decode
@@ -87,7 +88,12 @@ class DomainSecrets(Service):
 
     async def has_domain(self, domain):
         # Check whether running version of secrets.tdb has our machine account password
-        return bool(await self.__fetch(f"{Secrets.MACHINE_PASSWORD.value}/{domain.upper()}"))
+        try:
+            await self.__fetch(f"{Secrets.MACHINE_PASSWORD.value}/{domain.upper()}")
+        except MatchNotFound:
+            return False
+
+        return True
 
     async def last_password_change(self, domain):
         encoded_change_ts = await self.__fetch(
@@ -105,7 +111,10 @@ class DomainSecrets(Service):
 
     async def set_ldap_idmap_secret(self, domain, user_dn, secret):
         # This is used by idmap_ldap and idmap_rfc2307
-        await self.__store(f'SECRETS/GENERIC/IDMAP_LDAP_{domain.upper()}/{user_dn}', b64encode(secret))
+        await self.__store(
+            f'SECRETS/GENERIC/IDMAP_LDAP_{domain.upper()}/{user_dn}',
+            {'payload': b64encode(secret.encode() + b'\x00')}
+        )
 
     async def get_ldap_idmap_secret(self, domain, user_dn):
         # This is used by idmap_ldap and idmap_rfc2307
@@ -114,3 +123,70 @@ class DomainSecrets(Service):
     async def dump(self):
         entries = await self.__entries([], {})
         return {entry['key']: entry['val'] for entry in entries}
+
+    async def get_db_secrets(self):
+        db = await self.middleware.call('datastore.config', 'services.cifs', {
+            'prefix': 'cifs_srv_', 'select': ['id', 'secrets']
+        })
+        if not db['secrets']:
+            return {'id': db['id']}
+
+        try:
+            secrets = json.loads(db['secrets'])
+        except json.decoder.JSONDecodeError:
+            self.logger.warning("Stored secrets are not valid JSON "
+                                "a new backup of secrets should be generated.")
+        return {'id': db['id']} | secrets
+
+    async def backup(self):
+        """
+        Writes the current secrets database to the truenas config file.
+        """
+        ha_mode = await self.middleware.call('smb.get_smb_ha_mode')
+        if ha_mode == "UNIFIED":
+            failover_status = await self.middleware.call("failover.status")
+            if failover_status != "MASTER":
+                self.logger.debug("Current failover status [%s]. Skipping secrets backup.",
+                                  failover_status)
+                return
+
+        netbios_name = (await self.middleware.call('smb.config'))['netbiosname']
+        db_secrets = await self.get_db_secrets()
+        id_ = db_secrets.pop('id')
+
+        if not (secrets := (await self.dump())):
+            self.logger.warning("Unable to parse secrets")
+            return
+
+        db_secrets.update({f"{netbios_name.upper()}$": secrets})
+        await self.middleware.call(
+            'datastore.update',
+            'services.cifs', id_,
+            {'secrets': json.dumps(db_secrets)},
+            {'prefix': 'cifs_srv_'}
+        )
+
+    async def restore(self, netbios_name=None):
+        ha_mode = await self.middleware.call('smb.get_smb_ha_mode')
+        if ha_mode == "UNIFIED":
+            failover_status = await self.middleware.call("failover.status")
+            if failover_status != "MASTER":
+                self.logger.debug("Current failover status [%s]. Skipping secrets restore.",
+                                  failover_status)
+                return False
+
+        if netbios_name is None:
+            netbios_name = (await self.middleware.call('smb.config'))['netbiosname']
+
+        db_secrets = await self.get_db_secrets()
+        server_secrets = db_secrets.get(f"{netbios_name.upper()}$")
+        if server_secrets is None:
+            self.logger.warning("Unable to find stored secrets for [%s]. "
+                                "Directory service functionality may be impacted.",
+                                netbios_name)
+            return False
+
+        for key, value in server_secrets.items():
+            await self.__store(key, {'payload': value})
+
+        return True

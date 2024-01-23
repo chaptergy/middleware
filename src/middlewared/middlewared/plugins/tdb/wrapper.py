@@ -151,7 +151,7 @@ class TDBWrap(object):
             case _:
                 tdb_flags = tdb.DEFAULT
                 # Typically tdb files will have NULL-terminated keys
-                self.keys_null_terminated = self.options['data_type'] == 'BYTES'
+                self.keys_null_terminated = options['data_type'] == 'BYTES'
                 open_flags = os.O_CREAT | os.O_RDWR
                 open_mode = 0o600
 
