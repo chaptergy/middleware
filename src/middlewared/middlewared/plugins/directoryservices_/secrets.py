@@ -1,4 +1,5 @@
 import enum
+import struct
 
 from base64 import b64encode, b64decode
 from middlewared.service import Service
@@ -12,7 +13,7 @@ class Secrets(enum.Enum):
     MACHINE_ACCT_PASS = 'SECRETS/$MACHINE.ACC'
     MACHINE_PASSWORD = 'SECRETS/MACHINE_PASSWORD'
     MACHINE_PASSWORD_PREV = 'SECRETS/MACHINE_PASSWORD.PREV'
-    MACHINE_LAST_CHANGE_TIME = 'SECRETS/MACHINE_LAST_CHANGE_TIME' 
+    MACHINE_LAST_CHANGE_TIME = 'SECRETS/MACHINE_LAST_CHANGE_TIME'
     MACHINE_SEC_CHANNEL_TYPE = 'SECRETS/MACHINE_SEC_CHANNEL_TYPE'
     MACHINE_TRUST_ACCOUNT_NAME = 'SECRETS/SECRETS_MACHINE_TRUST_ACCOUNT_NAME'
     MACHINE_DOMAIN_INFO = 'SECRETS/MACHINE_DOMAIN_INFO'
@@ -30,7 +31,7 @@ class Secrets(enum.Enum):
     AUTH_PASSWORD = 'SECRETS/AUTH_PASSWORD'
 
 
-class ADSecrets(Service):
+class DomainSecrets(Service):
 
     class Config:
         namespace = 'directoryservices.secrets'
@@ -76,7 +77,6 @@ class ADSecrets(Service):
             'tdb-options': self.tdb_options
         })
 
-
     async def __entries(self, filters, options):
         return await self.middleware.call('tdb.entries', {
             'name': SECRETS_FILE,
@@ -105,12 +105,12 @@ class ADSecrets(Service):
 
     async def set_ldap_idmap_secret(self, domain, user_dn, secret):
         # This is used by idmap_ldap and idmap_rfc2307
-        await self.__store(f'SECRETS/GENERIC/IDMAP_LDAP_{domain.upper()}/{userdn}', b64encode(secret))
+        await self.__store(f'SECRETS/GENERIC/IDMAP_LDAP_{domain.upper()}/{user_dn}', b64encode(secret))
 
     async def get_ldap_idmap_secret(self, domain, user_dn):
         # This is used by idmap_ldap and idmap_rfc2307
         return await self.__fetch(f'SECRETS/GENERIC/IDMAP_LDAP_{domain.upper()}/{user_dn}')
 
-    async def dump(self, filters, options):
-        entries = self.__entries(filters, options)
-        return {entry['key']: entry['value'] for entry in entries}
+    async def dump(self):
+        entries = await self.__entries([], {})
+        return {entry['key']: entry['val'] for entry in entries}

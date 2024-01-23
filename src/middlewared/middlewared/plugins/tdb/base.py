@@ -149,6 +149,7 @@ class TDBService(Service, TDBMixin):
         query all entries in tdb file based on specified query-filters and query-options
         """
         def append_entries(tdb_key, tdb_data, state):
+            self.logger.debug("XXX: key: %s", tdb_key)
             if tdb_data is None:
                 return True
 

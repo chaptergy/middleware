@@ -9,7 +9,7 @@ from base64 import b64encode, b64decode
 from middlewared.schema import accepts, Dict, List, OROperator, Ref, returns, Str
 from middlewared.service import no_authz_required, Service, private, job
 from middlewared.plugins.smb import SMBCmd, SMBPath
-from middlewared.service_exception import CallError
+from middlewared.service_exception import CallError, MatchNotFound
 from middlewared.utils import run
 
 DEFAULT_AD_CONF = {
@@ -275,9 +275,12 @@ class DirectoryServices(Service):
         if domain is None:
             domain = smb_config['workgroup']
 
-        passwd_ts = await self.middleware.call(
-            'directroyservices.secrets.last_password_change', domain
-        )
+        try:
+            passwd_ts = await self.middleware.call(
+                'directroyservices.secrets.last_password_change', domain
+            )
+        except MatchNotFound:
+            passwd_ts = None
 
         db_secrets = self.get_db_secrets()
         server_secrets = db_secrets.get(f"{smb_config['netbiosname_local'].upper()}$")
