@@ -622,3 +622,44 @@ class iSCSITargetService(CRUDService):
                 result.append(target['name'])
 
         return result
+
+    @private
+    async def cluster_mode_targets_luns(self):
+        """
+        Returns a tuple containing:
+        - list of target names that are currently in cluster_mode on this controller.
+        - dict keyed by target name, where the value is a list of luns that are currently in cluster_mode on this controller.
+        """
+        targets = await self.middleware.call('iscsi.target.query')
+        extents = {extent['id']: extent for extent in await self.middleware.call('iscsi.extent.query', [['enabled', '=', True]])}
+        assoc = await self.middleware.call('iscsi.targetextent.query')
+
+        # Generate a dict, keyed by target ID whose value is a set of associated extent names
+        target_extents = defaultdict(set)
+        # Also Generate a dict, keyed by target ID whose value is a set of (lunID, extent name) tuples
+        target_luns = defaultdict(set)
+        for a_tgt in filter(
+            lambda a: a['extent'] in extents and not extents[a['extent']]['locked'],
+            assoc
+        ):
+            target_id = a_tgt['target']
+            extent_name = extents[a_tgt['extent']]['name']
+            target_extents[target_id].add(extent_name)
+            target_luns[target_id].add((a_tgt['lunid'], extent_name))
+
+        # Check sysfs to see what extents are in cluster mode
+        cl_extents = set(await self.middleware.call('iscsi.target.clustered_extents'))
+
+        cluster_mode_targets = []
+        cluster_mode_luns = defaultdict(list)
+
+        for target in targets:
+            # Find targets whose extents are all in cluster mode
+            if target_extents[target['id']].issubset(cl_extents):
+                cluster_mode_targets.append(target['name'])
+
+            for (lunid, extent_name) in target_luns.get(target['id'], {}):
+                if extent_name in cl_extents:
+                    cluster_mode_luns[target['name']].append(lunid)
+
+        return (cluster_mode_targets, cluster_mode_luns)
