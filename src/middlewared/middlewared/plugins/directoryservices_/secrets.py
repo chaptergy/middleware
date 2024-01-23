@@ -101,3 +101,9 @@ class ADSecrets(Service):
             return None
 
         return struct.unpack("<L", bytes_passwd_chng)[0]
+
+    def set_ldap_idmap_secret(self, domain, user_dn, secret):
+        await self.__store(f'SECRETS/GENERIC/IDMAP_LDAP_{domain.upper()}/{userdn}', b64encode(secret))
+
+    def get_ldap_idmap_secret(self, domain, user_dn):
+        return await self.__fetch(f'SECRETS/GENERIC/IDMAP_LDAP_{domain.upper()}/{user_dn}')
