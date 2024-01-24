@@ -103,7 +103,9 @@
         else:
             middleware.call_sync("iscsi.target.logout_ha_targets")
             targets = []
-            extents = portals = initiators = {}
+            extents = {}
+            portals = {}
+            initiators = {}
             associated_targets = defaultdict(list)
 
     nodes = {"A" : {"other" : "B", "group_id" : 101},
