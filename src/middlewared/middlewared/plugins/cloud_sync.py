@@ -149,8 +149,10 @@ async def rclone(middleware, job, cloud_sync, dry_run):
         if cloud_sync["attributes"].get("fast_list"):
             args.append("--fast-list")
 
-        if cloud_sync["follow_symlinks"]:
+        if cloud_sync["symlinks"] == "FOLLOW":
             args.extend(["-L"])
+        elif cloud_sync["symlinks"] == "RCLONELINK":
+            args.extend(["-l"])
 
         if cloud_sync["transfers"]:
             args.extend(["--transfers", str(cloud_sync["transfers"])])
@@ -692,7 +694,7 @@ class CloudSyncModel(CloudTaskModelMixin, sa.Model):
     encryption_salt = sa.Column(sa.EncryptedText())
 
     create_empty_src_dirs = sa.Column(sa.Boolean())
-    follow_symlinks = sa.Column(sa.Boolean())
+    symlinks = sa.Column(sa.String(20))
 
 
 class CloudSyncService(TaskPathService, CloudTaskServiceMixin, TaskStateMixin):
@@ -811,7 +813,7 @@ class CloudSyncService(TaskPathService, CloudTaskServiceMixin, TaskStateMixin):
         Str("encryption_salt", default=""),
 
         Bool("create_empty_src_dirs", default=False),
-        Bool("follow_symlinks", default=False),
+        Str("symlinks", enum=["IGNORE", "FOLLOW", "RCLONELINK"], required=True),
         register=True,
     ))
     async def do_create(self, cloud_sync):
