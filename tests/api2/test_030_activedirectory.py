@@ -210,7 +210,7 @@ def test_07_enable_leave_activedirectory(request):
 
         # Last password change should be populated
         passwd_change = call('directoryservices.get_last_password_change')
-        assert passwd_change['db_config'] is not None
+        assert passwd_change['dbconfig'] is not None
         assert passwd_change['secrets'] is not None
 
         # We should be able tZZo change some parameters when joined to AD
